@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { timeout } from '../../../../base/common/async.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Event } from '../../../../base/common/event.js';
 import { DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
@@ -2503,45 +2504,104 @@ suite('AgentSideEffects', () => {
 
 	// ---- Session diff computation ----------------------------------------------
 
-		test('publishSessionChangesetCatalogue adds the default catalogue entry on summary.changesets', () => {
-			const sessionStr = sessionUri.toString();
-			setupSession();
+	test('publishSessionChangesetCatalogue adds the default catalogue entry on summary.changesets', () => {
+		const sessionStr = sessionUri.toString();
+		setupSession();
 
-			// No catalogue before the eager publish.
-			assert.strictEqual(stateManager.getSessionState(sessionStr)?.summary.changesets, undefined);
+		// No catalogue before the eager publish.
+		assert.strictEqual(stateManager.getSessionState(sessionStr)?.summary.changesets, undefined);
 
-			sideEffects.publishSessionChangesetCatalogue(sessionStr);
+		sideEffects.publishSessionChangesetCatalogue(sessionStr);
 
-			const changesets = stateManager.getSessionState(sessionStr)?.summary.changesets;
-			assert.deepStrictEqual(changesets, [
-				{
-					id: 'session',
-					label: 'Session Changes',
-					uriTemplate: `${sessionStr}/changeset/session`,
-				},
-			]);
+		const changesets = stateManager.getSessionState(sessionStr)?.summary.changesets;
+		assert.deepStrictEqual(changesets, [
+			{
+				id: 'session',
+				label: 'Session Changes',
+				uriTemplate: `${sessionStr}/changeset/session`,
+			},
+		]);
 
-			// The changeset URI is now registered and subscribable with a
-			// `computing` snapshot so a client that subscribes before the
-			// first diff compute sees a valid state.
-			const snapshot = stateManager.getSnapshot(`${sessionStr}/changeset/session`);
-			assert.ok(snapshot, 'expected the changeset URI to be subscribable');
-			assert.strictEqual((snapshot.state as { status: string }).status, 'computing');
-		});
+		// The changeset URI is now registered and subscribable with a
+		// `computing` snapshot so a client that subscribes before the
+		// first diff compute sees a valid state.
+		const snapshot = stateManager.getSnapshot(`${sessionStr}/changeset/session`);
+		assert.ok(snapshot, 'expected the changeset URI to be subscribable');
+		assert.strictEqual((snapshot.state as { status: string }).status, 'computing');
+	});
 
-		test('publishSessionChangesetCatalogue is idempotent across repeated calls', () => {
-			const sessionStr = sessionUri.toString();
-			setupSession();
+	test('publishSessionChangesetCatalogue is idempotent across repeated calls', () => {
+		const sessionStr = sessionUri.toString();
+		setupSession();
 
-			sideEffects.publishSessionChangesetCatalogue(sessionStr);
-			sideEffects.publishSessionChangesetCatalogue(sessionStr);
-			sideEffects.publishSessionChangesetCatalogue(sessionStr);
+		sideEffects.publishSessionChangesetCatalogue(sessionStr);
+		sideEffects.publishSessionChangesetCatalogue(sessionStr);
+		sideEffects.publishSessionChangesetCatalogue(sessionStr);
 
-			const changesets = stateManager.getSessionState(sessionStr)?.summary.changesets;
-			assert.strictEqual(changesets?.length, 1, 'expected exactly one default catalogue entry');
-		});
+		const changesets = stateManager.getSessionState(sessionStr)?.summary.changesets;
+		assert.strictEqual(changesets?.length, 1, 'expected exactly one default catalogue entry');
+	});
 
-		suite('session diff computation', () => {
+	test('restoreSessionChangeset publishes the catalogue and seeds files in Ready', () => {
+		const sessionStr = sessionUri.toString();
+		setupSession();
+
+		const diffs = [
+			{
+				after: { uri: 'file:///wd/a.ts', content: { uri: 'file:///wd/a.ts' } },
+				diff: { added: 5, removed: 2 },
+			},
+			{
+				after: { uri: 'file:///wd/b.ts', content: { uri: 'file:///wd/b.ts' } },
+				diff: { added: 1, removed: 0 },
+			},
+		];
+
+		sideEffects.restoreSessionChangeset(sessionStr, diffs);
+
+		const changesetUri = `${sessionStr}/changeset/session`;
+		const snapshot = stateManager.getSnapshot(changesetUri);
+		assert.ok(snapshot, 'expected the changeset URI to be subscribable');
+		const state = snapshot.state as { status: string; files: Array<{ id: string }> };
+		assert.strictEqual(state.status, 'ready');
+		assert.deepStrictEqual(state.files.map(f => f.id), ['file:///wd/a.ts', 'file:///wd/b.ts']);
+
+		const catalogue = stateManager.getSessionState(sessionStr)?.summary.changesets;
+		assert.deepStrictEqual(catalogue, [
+			{
+				id: 'session',
+				label: 'Session Changes',
+				uriTemplate: changesetUri,
+				additions: 6,
+				deletions: 2,
+				files: 2,
+			},
+		]);
+	});
+
+	test('restoreSessionChangeset works without a live session state (seeds the changeset for unopened sessions)', () => {
+		const sessionStr = sessionUri.toString();
+		// Note: setupSession is intentionally NOT called.
+
+		const diffs = [
+			{
+				after: { uri: 'file:///wd/a.ts', content: { uri: 'file:///wd/a.ts' } },
+				diff: { added: 1, removed: 0 },
+			},
+		];
+		sideEffects.restoreSessionChangeset(sessionStr, diffs);
+
+		// Session state still doesn't exist — only the changeset
+		// state is registered so a client subscription resolves.
+		assert.strictEqual(stateManager.getSessionState(sessionStr), undefined);
+		const snapshot = stateManager.getSnapshot(`${sessionStr}/changeset/session`);
+		assert.ok(snapshot, 'expected the changeset URI to be subscribable even without a session state');
+		const state = snapshot.state as { status: string; files: Array<{ id: string }> };
+		assert.strictEqual(state.status, 'ready');
+		assert.deepStrictEqual(state.files.map(f => f.id), ['file:///wd/a.ts']);
+	});
+
+	suite('session diff computation', () => {
 
 		test('git-driven path is preferred when a git service is provided and the working dir is a git work tree', async () => {
 			const sessionDb = new SessionDatabase(':memory:');
@@ -2617,6 +2677,18 @@ suite('AgentSideEffects', () => {
 				.map(e => e.action)
 				.filter(a => a.type === ActionType.ChangesetFileSet) as Array<{ file: { edit: unknown } }>;
 			assert.deepStrictEqual(fileSets.map(a => a.file.edit), gitDiffs);
+
+			// The compute pass also persists the file list under the
+			// legacy `'diffs'` slot so it survives restarts. The write
+			// is fire-and-forget through the metadata sequencer; poll
+			// briefly until it lands.
+			let persisted: string | undefined;
+			for (let i = 0; i < 50 && !persisted; i++) {
+				await timeout(2);
+				persisted = await sessionDb.getMetadata('diffs');
+			}
+			assert.ok(persisted, 'expected the compute pass to persist diffs to the session DB');
+			assert.deepStrictEqual(JSON.parse(persisted), gitDiffs);
 		});
 
 		test('falls back to the edit-tracker aggregator when the git service returns undefined', async () => {

@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { localize } from '../../../nls.js';
 import type { URI } from './state/sessionState.js';
 
 /**
@@ -26,6 +27,20 @@ import type { URI } from './state/sessionState.js';
  * accepts arbitrary id strings so future producers can encode those without
  * changing the parser.
  */
+
+/**
+ * Stable id of the catalogue entry for the session-wide changeset (the v1
+ * producer's only entry). Shared across server-side producers and
+ * client-side consumers so the literal `'session'` string isn't repeated.
+ */
+export const SESSION_CHANGESET_ID = 'session';
+
+/**
+ * Localized human-readable label for the session-wide changeset entry.
+ * Centralised here so producers (`agentService`, `agentSideEffects`) and
+ * any future consumer that needs the same label stay in sync.
+ */
+export const sessionChangesetLabel = (): string => localize('sessionChangeset.label', "Session Changes");
 
 /**
  * Marker injected into a changeset URI's path to distinguish it from any

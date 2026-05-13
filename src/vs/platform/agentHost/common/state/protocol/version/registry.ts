@@ -16,7 +16,7 @@ import { NotificationType, type ProtocolNotification } from '../notifications.js
  *
  * Formatted as a [SemVer](https://semver.org) `MAJOR.MINOR.PATCH` string.
  */
-export const PROTOCOL_VERSION = '0.2.0';
+export const PROTOCOL_VERSION = '0.1.0';
 
 // ─── SemVer Comparison ───────────────────────────────────────────────────────
 
@@ -94,12 +94,12 @@ export const ACTION_INTRODUCED_IN: { readonly [K in StateAction['type']]: string
 	[ActionType.SessionActivityChanged]: '0.1.0',
 	[ActionType.SessionConfigChanged]: '0.1.0',
 	[ActionType.SessionMetaChanged]: '0.1.0',
-	[ActionType.ChangesetStatusChanged]: '0.2.0',
-	[ActionType.ChangesetFileSet]: '0.2.0',
-	[ActionType.ChangesetFileRemoved]: '0.2.0',
-	[ActionType.ChangesetOperationsChanged]: '0.2.0',
-	[ActionType.ChangesetCleared]: '0.2.0',
-	[ActionType.ChangesetDisposed]: '0.2.0',
+	[ActionType.ChangesetStatusChanged]: '0.1.0',
+	[ActionType.ChangesetFileSet]: '0.1.0',
+	[ActionType.ChangesetFileRemoved]: '0.1.0',
+	[ActionType.ChangesetOperationsChanged]: '0.1.0',
+	[ActionType.ChangesetCleared]: '0.1.0',
+	[ActionType.ChangesetDisposed]: '0.1.0',
 	[ActionType.RootTerminalsChanged]: '0.1.0',
 	[ActionType.RootConfigChanged]: '0.1.0',
 	[ActionType.TerminalData]: '0.1.0',

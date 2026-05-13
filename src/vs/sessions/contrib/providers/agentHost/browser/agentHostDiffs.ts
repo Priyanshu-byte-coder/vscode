@@ -5,18 +5,10 @@
 
 import { isDefined } from '../../../../../base/common/types.js';
 import { URI } from '../../../../../base/common/uri.js';
-import { SessionStatus as ProtocolSessionStatus, type ChangesetFile, type ChangesetSummary } from '../../../../../platform/agentHost/common/state/protocol/state.js';
+import { SessionStatus as ProtocolSessionStatus, type ChangesetFile } from '../../../../../platform/agentHost/common/state/protocol/state.js';
 import { ISessionFileDiff } from '../../../../../platform/agentHost/common/state/sessionState.js';
 import { IChatSessionFileChange2, isIChatSessionFileChange2 } from '../../../../../workbench/contrib/chat/common/chatSessionsService.js';
 import { ISessionFileChange, SessionStatus } from '../../../../services/sessions/common/session.js';
-
-/**
- * Stable id of the catalogue entry for the session-wide changeset (the v1
- * producer's only entry). Mirrors `_SESSION_CHANGESET_ID` in
- * `agentSideEffects.ts`; kept in sync by hand because the consumer side
- * doesn't depend on the producer source file.
- */
-export const SESSION_CHANGESET_ID = 'session';
 
 /**
  * Maps the protocol-layer session status bitset to the UI-layer
@@ -34,16 +26,6 @@ export function mapProtocolStatus(protocol: ProtocolSessionStatus): SessionStatu
 	}
 
 	return SessionStatus.Completed;
-}
-
-/**
- * Picks the catalogue entry for the session-wide changeset out of the
- * (small, lightweight) catalogue carried on `SessionSummary.changesets`.
- * Returns `undefined` when the producer hasn't published one yet, which is
- * the steady state for sessions that have never run a turn.
- */
-export function findSessionChangeset(catalogue: readonly ChangesetSummary[] | undefined): ChangesetSummary | undefined {
-	return catalogue?.find(c => c.id === SESSION_CHANGESET_ID);
 }
 
 /**

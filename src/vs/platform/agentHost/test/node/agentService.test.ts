@@ -509,6 +509,129 @@ suite('AgentService (node dispatcher)', () => {
 			assert.strictEqual(sessions[0].summary, 'Auto-generated Title');
 		});
 
+		test('listSessions synthesizes the session changeset catalogue from persisted diffs for unopened sessions', async () => {
+			// Pre-seed a `'diffs'` blob in the in-memory DB. The agent's
+			// `listSessions()` returns the session metadata but the session
+			// is NOT live in the state manager (no createSession /
+			// restoreSession call), so the synthesised catalogue path runs.
+			const db = disposables.add(await SessionDatabase.open(':memory:'));
+			const persistedDiffs = [
+				{
+					after: { uri: 'file:///wd/a.ts', content: { uri: 'file:///wd/a.ts' } },
+					diff: { added: 5, removed: 2 },
+				},
+				{
+					after: { uri: 'file:///wd/b.ts', content: { uri: 'file:///wd/b.ts' } },
+					diff: { added: 3, removed: 0 },
+				},
+			];
+			await db.setMetadata('diffs', JSON.stringify(persistedDiffs));
+
+			const sessionId = 'persisted-session';
+			const sessionUri = AgentSession.uri('copilot', sessionId);
+			const sessionDataService: ISessionDataService = {
+				_serviceBrand: undefined,
+				getSessionDataDir: () => URI.parse('inmemory:/session-data'),
+				getSessionDataDirById: () => URI.parse('inmemory:/session-data'),
+				openDatabase: (): IReference<ISessionDatabase> => ({ object: db, dispose: () => { } }),
+				tryOpenDatabase: async (): Promise<IReference<ISessionDatabase> | undefined> => ({ object: db, dispose: () => { } }),
+				deleteSessionData: async () => { },
+				cleanupOrphanedData: async () => { },
+				whenIdle: async () => { },
+			};
+
+			const agent = new MockAgent('copilot');
+			disposables.add(toDisposable(() => agent.dispose()));
+			(agent as unknown as { _sessions: Map<string, URI> })._sessions.set(sessionId, sessionUri);
+
+			const svc = disposables.add(new AgentService(new NullLogService(), fileService, sessionDataService, { _serviceBrand: undefined } as IProductService, createNoopGitService()));
+			svc.registerProvider(agent);
+
+			const sessions = await svc.listSessions();
+			assert.strictEqual(sessions.length, 1);
+			assert.deepStrictEqual(sessions[0].changesets, [
+				{
+					id: 'session',
+					label: 'Session Changes',
+					uriTemplate: `${sessionUri.toString()}/changeset/session`,
+					additions: 8,
+					deletions: 2,
+					files: 2,
+				},
+			]);
+		});
+
+		test('listSessions silently ignores malformed persisted diffs', async () => {
+			const db = disposables.add(await SessionDatabase.open(':memory:'));
+			await db.setMetadata('diffs', '{ not valid json');
+
+			const sessionId = 'bad-diffs-session';
+			const sessionUri = AgentSession.uri('copilot', sessionId);
+			const sessionDataService: ISessionDataService = {
+				_serviceBrand: undefined,
+				getSessionDataDir: () => URI.parse('inmemory:/session-data'),
+				getSessionDataDirById: () => URI.parse('inmemory:/session-data'),
+				openDatabase: (): IReference<ISessionDatabase> => ({ object: db, dispose: () => { } }),
+				tryOpenDatabase: async (): Promise<IReference<ISessionDatabase> | undefined> => ({ object: db, dispose: () => { } }),
+				deleteSessionData: async () => { },
+				cleanupOrphanedData: async () => { },
+				whenIdle: async () => { },
+			};
+
+			const agent = new MockAgent('copilot');
+			disposables.add(toDisposable(() => agent.dispose()));
+			(agent as unknown as { _sessions: Map<string, URI> })._sessions.set(sessionId, sessionUri);
+
+			const svc = disposables.add(new AgentService(new NullLogService(), fileService, sessionDataService, { _serviceBrand: undefined } as IProductService, createNoopGitService()));
+			svc.registerProvider(agent);
+
+			const sessions = await svc.listSessions();
+			assert.strictEqual(sessions.length, 1);
+			assert.strictEqual(sessions[0].changesets, undefined);
+		});
+
+		test('listSessions seeds the server-side changeset state from persisted diffs (so chip subscriptions resolve for unopened sessions)', async () => {
+			const db = disposables.add(await SessionDatabase.open(':memory:'));
+			const persistedDiffs = [
+				{
+					after: { uri: 'file:///wd/a.ts', content: { uri: 'file:///wd/a.ts' } },
+					diff: { added: 5, removed: 2 },
+				},
+			];
+			await db.setMetadata('diffs', JSON.stringify(persistedDiffs));
+
+			const sessionId = 'unopened-with-diffs';
+			const sessionUri = AgentSession.uri('copilot', sessionId);
+			const sessionDataService: ISessionDataService = {
+				_serviceBrand: undefined,
+				getSessionDataDir: () => URI.parse('inmemory:/session-data'),
+				getSessionDataDirById: () => URI.parse('inmemory:/session-data'),
+				openDatabase: (): IReference<ISessionDatabase> => ({ object: db, dispose: () => { } }),
+				tryOpenDatabase: async (): Promise<IReference<ISessionDatabase> | undefined> => ({ object: db, dispose: () => { } }),
+				deleteSessionData: async () => { },
+				cleanupOrphanedData: async () => { },
+				whenIdle: async () => { },
+			};
+
+			const agent = new MockAgent('copilot');
+			disposables.add(toDisposable(() => agent.dispose()));
+			(agent as unknown as { _sessions: Map<string, URI> })._sessions.set(sessionId, sessionUri);
+
+			const svc = disposables.add(new AgentService(new NullLogService(), fileService, sessionDataService, { _serviceBrand: undefined } as IProductService, createNoopGitService()));
+			svc.registerProvider(agent);
+
+			await svc.listSessions();
+
+			// Even without any explicit `restoreSession` call, the
+			// changeset URI should be subscribable on the server side
+			// with the persisted files.
+			const snapshot = svc.stateManager.getSnapshot(`${sessionUri.toString()}/changeset/session`);
+			assert.ok(snapshot, 'expected listSessions to seed the changeset state');
+			const state = snapshot.state as { status: string; files: Array<{ id: string }> };
+			assert.strictEqual(state.status, 'ready');
+			assert.deepStrictEqual(state.files.map(f => f.id), ['file:///wd/a.ts']);
+		});
+
 		test('listSessions overlays live state manager title over SDK title', async () => {
 			service.registerProvider(copilotAgent);
 
@@ -1417,6 +1540,93 @@ suite('AgentService (node dispatcher)', () => {
 			// MockAgent.resolveSessionConfig echoes params.config back as values, so the
 			// persisted values are forwarded through and end up on state.config.values.
 			assert.deepStrictEqual(state!.config?.values, { autoApprove: 'autoApprove' });
+		});
+
+		test('restoreSession seeds the session changeset from persisted diffs', async () => {
+			const sessionDb = disposables.add(await SessionDatabase.open(':memory:'));
+			const sessionDataService = createSessionDataService(sessionDb);
+			const localAgent = new MockAgent('copilot');
+			disposables.add(toDisposable(() => localAgent.dispose()));
+			const localService = disposables.add(new AgentService(new NullLogService(), fileService, sessionDataService, { _serviceBrand: undefined } as IProductService, createNoopGitService()));
+			localService.registerProvider(localAgent);
+
+			const { session } = await localAgent.createSession();
+			const sessions = await localAgent.listSessions();
+			const sessionResource = sessions[0].session;
+
+			const persistedDiffs = [
+				{
+					after: { uri: 'file:///wd/a.ts', content: { uri: 'file:///wd/a.ts' } },
+					diff: { added: 5, removed: 2 },
+				},
+			];
+			await sessionDb.setMetadata('diffs', JSON.stringify(persistedDiffs));
+
+			localAgent.sessionMessages = [
+				{ type: 'message', session, role: 'user', messageId: 'msg-1', content: 'Hello', toolRequests: [] },
+				{ type: 'message', session, role: 'assistant', messageId: 'msg-2', content: 'Hi', toolRequests: [] },
+			];
+
+			await localService.restoreSession(sessionResource);
+
+			const state = localService.stateManager.getSessionState(sessionResource.toString());
+			assert.ok(state);
+			assert.deepStrictEqual(state!.summary.changesets, [
+				{
+					id: 'session',
+					label: 'Session Changes',
+					uriTemplate: `${sessionResource.toString()}/changeset/session`,
+					additions: 5,
+					deletions: 2,
+					files: 1,
+				},
+			]);
+
+			const changesetSnapshot = localService.stateManager.getSnapshot(`${sessionResource.toString()}/changeset/session`);
+			assert.ok(changesetSnapshot);
+			const changesetState = changesetSnapshot.state as { status: string; files: Array<{ id: string }> };
+			assert.strictEqual(changesetState.status, 'ready');
+			assert.deepStrictEqual(changesetState.files.map(f => f.id), ['file:///wd/a.ts']);
+		});
+
+		test('restoreSession silently ignores malformed persisted diffs', async () => {
+			const sessionDb = disposables.add(await SessionDatabase.open(':memory:'));
+			const sessionDataService = createSessionDataService(sessionDb);
+			const localAgent = new MockAgent('copilot');
+			disposables.add(toDisposable(() => localAgent.dispose()));
+			const localService = disposables.add(new AgentService(new NullLogService(), fileService, sessionDataService, { _serviceBrand: undefined } as IProductService, createNoopGitService()));
+			localService.registerProvider(localAgent);
+
+			const { session } = await localAgent.createSession();
+			const sessions = await localAgent.listSessions();
+			const sessionResource = sessions[0].session;
+
+			await sessionDb.setMetadata('diffs', '{ not valid json');
+
+			localAgent.sessionMessages = [
+				{ type: 'message', session, role: 'user', messageId: 'msg-1', content: 'Hello', toolRequests: [] },
+				{ type: 'message', session, role: 'assistant', messageId: 'msg-2', content: 'Hi', toolRequests: [] },
+			];
+
+			await localService.restoreSession(sessionResource);
+
+			const state = localService.stateManager.getSessionState(sessionResource.toString());
+			assert.ok(state);
+			// Catalogue still gets the eager `publishSessionChangesetCatalogue`
+			// entry (with no counts) — but no files were seeded.
+			assert.deepStrictEqual(state!.summary.changesets, [
+				{
+					id: 'session',
+					label: 'Session Changes',
+					uriTemplate: `${sessionResource.toString()}/changeset/session`,
+				},
+			]);
+
+			const changesetSnapshot = localService.stateManager.getSnapshot(`${sessionResource.toString()}/changeset/session`);
+			assert.ok(changesetSnapshot);
+			const changesetState = changesetSnapshot.state as { status: string; files: Array<{ id: string }> };
+			assert.strictEqual(changesetState.status, 'computing');
+			assert.strictEqual(changesetState.files.length, 0);
 		});
 
 		test('createSession + restoreSession round-trip restores initial config without any mid-session changes', async () => {
