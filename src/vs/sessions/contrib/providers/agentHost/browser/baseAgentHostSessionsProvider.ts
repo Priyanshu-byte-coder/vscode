@@ -234,11 +234,12 @@ export class AgentHostSessionAdapter implements ISession {
 		}
 		// File-change rendering: the catalogue entry on
 		// `metadata.changesets` carries only aggregate counts. The full
-		// per-file list now flows through a separate `ChangesetState`
-		// subscription opened lazily by the provider when the changes view
-		// is shown. v1 leaves `this.changes` empty until that subscription
-		// catches up — see plan for the follow-up that wires the
-		// subscription into the adapter.
+		// per-file list flows through a separate `ChangesetState`
+		// subscription, which the provider opens via
+		// `_ensureChangesetSubscription` whenever a session is added or
+		// updated. `this.changes` is populated from that subscription as
+		// `ChangesetState.files` updates arrive, so it starts empty here
+		// and fills in as soon as the first snapshot is delivered.
 
 		const checkpoints = observableValue(this, undefined);
 

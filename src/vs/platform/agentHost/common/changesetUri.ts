@@ -21,11 +21,13 @@ import type { URI } from './state/sessionState.js';
  * The id portion is the unmodified `ChangesetSummary.id` value the catalogue
  * advertised — this module performs no escaping.
  *
- * v1 of the changeset model only emits static (variable-free) URIs.
- * Per-turn / between-turn URIs the spec describes will use additional path
- * segments (e.g. `/changeset/turn/<turnId>`); this helper deliberately
- * accepts arbitrary id strings so future producers can encode those without
- * changing the parser.
+ * v1 of the changeset model only emits static (variable-free) URIs and the
+ * helpers below enforce that: ids must be non-empty and must not contain
+ * `/`, and parsing rejects any extra path segments after the id. The spec
+ * sketches richer per-turn / between-turn templates (e.g.
+ * `/changeset/turn/<turnId>`) — supporting those will need either escaping
+ * at the call site or a more permissive parser, both of which are
+ * deliberately out of scope here.
  */
 
 /**
