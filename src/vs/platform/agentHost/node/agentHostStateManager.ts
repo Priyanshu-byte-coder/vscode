@@ -17,6 +17,31 @@ import { SessionConfigKey } from '../common/sessionConfigKeys.js';
 import { buildChangesetUri, parseChangesetUri } from '../common/changesetUri.js';
 
 /**
+ * Field-level equality for two changeset catalogue arrays. Used by
+ * {@link AgentHostStateManager.setSessionChangesets} to skip a redundant
+ * dispatch when the catalogue has not changed in any user-visible way.
+ */
+function changesetCataloguesEqual(a: readonly ChangesetSummary[] | undefined, b: readonly ChangesetSummary[] | undefined): boolean {
+	if (a === b) { return true; }
+	if (!a || !b) { return false; }
+	if (a.length !== b.length) { return false; }
+	for (let i = 0; i < a.length; i++) {
+		const x = a[i];
+		const y = b[i];
+		if (x.id !== y.id
+			|| x.label !== y.label
+			|| x.uriTemplate !== y.uriTemplate
+			|| x.description !== y.description
+			|| x.additions !== y.additions
+			|| x.deletions !== y.deletions
+			|| x.files !== y.files) {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
  * Server-side state manager for the sessions process protocol.
  *
  * Maintains the authoritative state tree (root + per-session), applies actions
@@ -395,8 +420,17 @@ export class AgentHostStateManager extends Disposable {
 	 * forcing every observer to subscribe to the full changeset.
 	 */
 	setSessionChangesets(session: URI, changesets: readonly ChangesetSummary[] | undefined): void {
-		if (!this._sessionStates.has(session)) {
+		const state = this._sessionStates.get(session);
+		if (!state) {
 			this._logService.warn(`[AgentHostStateManager] setSessionChangesets: unknown session ${session}`);
+			return;
+		}
+		// Skip dispatch when the catalogue is field-equal to the existing
+		// one. The reducer would otherwise allocate a new summary on every
+		// call, dirtying `_dirtySummaries` and broadcasting a redundant
+		// envelope. Producers call this after every compute pass, so
+		// duplicate calls are common.
+		if (changesetCataloguesEqual(state.summary.changesets, changesets)) {
 			return;
 		}
 		// Take a defensive copy so callers can't mutate the catalogue array

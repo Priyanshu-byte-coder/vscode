@@ -15,6 +15,7 @@ import { observableValue } from '../../../base/common/observable.js';
 import { extname as resourcesExtname, isEqual, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { generateUuid } from '../../../base/common/uuid.js';
+import { hasKey } from '../../../base/common/types.js';
 import { FileSystemProviderErrorCode, IFileService, toFileSystemProviderErrorCode } from '../../files/common/files.js';
 import { InstantiationService } from '../../instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../instantiation/common/serviceCollection.js';
@@ -25,9 +26,9 @@ import { buildChangesetUri, parseChangesetUri, SESSION_CHANGESET_ID, sessionChan
 import { ActionType, ActionEnvelope, INotification, type IRootConfigChangedAction, type SessionAction, type TerminalAction } from '../common/state/sessionActions.js';
 import type { CompletionsParams, CompletionsResult, CreateTerminalParams, ResolveSessionConfigResult, SessionConfigCompletionsResult } from '../common/state/protocol/commands.js';
 import { AhpErrorCodes, AHP_SESSION_NOT_FOUND, ContentEncoding, JSON_RPC_INTERNAL_ERROR, ProtocolError, type DirectoryEntry, type ResourceCopyParams, type ResourceCopyResult, type ResourceDeleteParams, type ResourceDeleteResult, type ResourceListResult, type ResourceMoveParams, type ResourceMoveResult, type ResourceReadResult, type ResourceWriteParams, type ResourceWriteResult, type IStateSnapshot } from '../common/state/sessionProtocol.js';
-import { MessageAttachmentKind, type ChangesetSummary, type MessageAttachment, type MessageResourceAttachment } from '../common/state/protocol/state.js';
+import { MessageAttachmentKind, type ChangesetState, type ChangesetSummary, type MessageAttachment, type MessageResourceAttachment } from '../common/state/protocol/state.js';
 import type { SessionPendingMessageSetAction, SessionTurnStartedAction } from '../common/state/protocol/actions.js';
-import { ResponsePartKind, SessionStatus, ToolCallStatus, ToolResultContentType, buildSubagentSessionUriPrefix, parseSubagentSessionUri, readSessionGitState, withSessionGitState, type ISessionFileDiff, type SessionConfigState, type SessionSummary, type ToolResultSubagentContent, type Turn } from '../common/state/sessionState.js';
+import { ChangesetStatus, ResponsePartKind, SessionStatus, ToolCallStatus, ToolResultContentType, buildSubagentSessionUriPrefix, parseSubagentSessionUri, readSessionGitState, withSessionGitState, type ISessionFileDiff, type SessionConfigState, type SessionSummary, type ToolResultSubagentContent, type Turn } from '../common/state/sessionState.js';
 import { IProductService } from '../../product/common/productService.js';
 import { AgentConfigurationService, IAgentConfigurationService } from './agentConfigurationService.js';
 import { AgentSideEffects } from './agentSideEffects.js';
@@ -73,6 +74,17 @@ function synthesizeSessionChangesetCatalogue(sessionUri: string, diffs: readonly
 		deletions,
 		files: diffs.length,
 	};
+}
+
+/**
+ * Same as {@link synthesizeSessionChangesetCatalogue} but seeded directly
+ * from the live {@link ChangesetState}. Used by `listSessions` when a ready
+ * changeset state already exists for an unopened session: we prefer this
+ * source over the persisted `diffs` blob so catalogue counts can't drift
+ * once the live state diverges from disk.
+ */
+function synthesizeSessionChangesetCatalogueFromState(sessionUri: string, state: ChangesetState): ChangesetSummary {
+	return synthesizeSessionChangesetCatalogue(sessionUri, state.files.map(f => f.edit));
 }
 
 /**
@@ -264,7 +276,25 @@ export class AgentService extends Disposable implements IAgentService {
 					return s;
 				}
 				try {
-					const m = await ref.object.getMetadataObject({ customTitle: true, isRead: true, isArchived: true, isDone: true, diffs: true });
+					// Decide whether persisted `diffs` are even needed
+					// before reading them: live `summary.changesets`
+					// (loaded session) and ready live changeset state
+					// (unopened session that already has a registered
+					// changeset) are both authoritative and avoid
+					// retrieving / parsing the potentially-large blob.
+					const sessionStr = s.session.toString();
+					const liveSessionState = this._stateManager.getSessionState(sessionStr);
+					const changesetUri = buildChangesetUri(sessionStr, SESSION_CHANGESET_ID);
+					const liveChangesetState = this._stateManager.getChangesetState(changesetUri);
+					const liveChangesetCatalogue = liveChangesetState?.status === ChangesetStatus.Ready
+						? synthesizeSessionChangesetCatalogueFromState(sessionStr, liveChangesetState)
+						: undefined;
+					const shouldReadPersistedDiffs = !liveSessionState?.summary.changesets && !liveChangesetCatalogue;
+
+					const metadataKeys = shouldReadPersistedDiffs
+						? { customTitle: true, isRead: true, isArchived: true, isDone: true, diffs: true }
+						: { customTitle: true, isRead: true, isArchived: true, isDone: true };
+					const m = await ref.object.getMetadataObject(metadataKeys);
 					let updated = s;
 					if (m.customTitle) {
 						updated = { ...updated, summary: m.customTitle };
@@ -276,6 +306,15 @@ export class AgentService extends Disposable implements IAgentService {
 						updated = { ...updated, isArchived: m.isArchived === 'true' };
 					} else if (m.isDone !== undefined) {
 						updated = { ...updated, isArchived: m.isDone === 'true' };
+					}
+					// When ready live changeset state exists for an
+					// unopened session (no live `SessionState` yet),
+					// synthesise the catalogue row from that state
+					// instead of from persisted `diffs`. This keeps
+					// counts in lockstep with the actual changeset
+					// state for the session-list chip.
+					if (!liveSessionState && liveChangesetCatalogue) {
+						updated = { ...updated, changesets: [liveChangesetCatalogue] };
 					}
 					// Reseed the per-session changeset from the legacy
 					// `'diffs'` slot so the file list survives restarts
@@ -296,7 +335,7 @@ export class AgentService extends Disposable implements IAgentService {
 					// `restoreSession`, the same persisted file list is
 					// fed through the live state manager and the
 					// catalogue switches over to the live overlay below.
-					if (m.diffs) {
+					if (shouldReadPersistedDiffs && hasKey(m, { diffs: true }) && m.diffs) {
 						let parsed: ISessionFileDiff[] | undefined;
 						try {
 							parsed = JSON.parse(m.diffs) as ISessionFileDiff[];
@@ -315,8 +354,6 @@ export class AgentService extends Disposable implements IAgentService {
 							// same files on every listSessions call, skip
 							// when the state manager already has files for
 							// this changeset.
-							const sessionStr = s.session.toString();
-							const changesetUri = buildChangesetUri(sessionStr, SESSION_CHANGESET_ID);
 							const existing = this._stateManager.getChangesetState(changesetUri);
 							if (!existing || existing.files.length === 0) {
 								this._sideEffects.restoreSessionChangeset(sessionStr, parsed);
@@ -328,7 +365,7 @@ export class AgentService extends Disposable implements IAgentService {
 							// is later restored / created, the live state
 							// overlay below replaces this with the
 							// authoritative catalogue.
-							if (!this._stateManager.getSessionState(sessionStr)) {
+							if (!liveSessionState) {
 								const synthesized = synthesizeSessionChangesetCatalogue(sessionStr, parsed);
 								updated = { ...updated, changesets: [synthesized] };
 							}

@@ -507,7 +507,10 @@ export class AgentSubscriptionManager extends Disposable {
 			case StateComponents.Changeset:
 				return new ChangesetStateSubscription(key, this._clientId, this._log);
 			default:
-				return new TerminalStateSubscription(key, this._clientId, this._log);
+				// Defensive: a new `StateComponents` value added without a
+				// matching arm above would otherwise silently get a
+				// terminal subscription with the wrong reducer/filter.
+				throw new Error(`_createSubscription: unsupported StateComponents kind: ${kind}`);
 		}
 	}
 
