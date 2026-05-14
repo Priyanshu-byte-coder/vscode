@@ -554,15 +554,19 @@ export class AgentHostStateManager extends Disposable {
 			const changesetAction = action as ChangesetAction;
 			const key = changesetAction.changeset;
 			const state = this._changesetStates.get(key);
-			if (state) {
-				const newState = changesetReducer(state, changesetAction, this._log);
-				if (newState !== state) {
-					this._changesetStates.set(key, newState);
-				}
-				resultingState = newState;
-			} else {
+			if (!state) {
+				// Unknown changeset: log and bail before envelope creation.
+				// Routing the action to subscribers (Issue 1) makes
+				// orphan envelopes client-visible, so we must drop them
+				// here rather than letting them advance `_serverSeq`.
 				this._logService.warn(`[AgentHostStateManager] Action for unknown changeset: ${key}, type=${action.type}`);
+				return undefined;
 			}
+			const newState = changesetReducer(state, changesetAction, this._log);
+			if (newState !== state) {
+				this._changesetStates.set(key, newState);
+			}
+			resultingState = newState;
 		}
 
 		// Emit envelope

@@ -602,6 +602,53 @@ suite('AgentHostStateManager', () => {
 		assert.ok(after, 'state should still exist');
 		assert.strictEqual(after.files.length, 0, 'files should be cleared');
 	});
+
+	test('unknown changeset action is ignored without emitting an envelope', () => {
+		manager.createSession(makeSessionSummary());
+		const changesetUri = `${sessionUri}/changeset/missing`;
+
+		const envelopes: ActionEnvelope[] = [];
+		disposables.add(manager.onDidEmitEnvelope(e => envelopes.push(e)));
+		const seqBefore = manager.serverSeq;
+
+		manager.dispatchServerAction({
+			type: ActionType.ChangesetFileSet,
+			changeset: changesetUri,
+			file: {
+				id: 'file:///x.ts',
+				edit: { after: { uri: 'file:///x.ts', content: { uri: 'file:///x.ts' } }, diff: { added: 1, removed: 0 } },
+			},
+		});
+
+		assert.deepStrictEqual(
+			{
+				envelopeCount: envelopes.length,
+				seqAdvanced: manager.serverSeq - seqBefore,
+				changesetState: manager.getChangesetState(changesetUri),
+			},
+			{
+				envelopeCount: 0,
+				seqAdvanced: 0,
+				changesetState: undefined,
+			},
+		);
+
+		// Sanity: registering the same URI and re-dispatching produces an
+		// envelope and advances the seq, proving the early return doesn't
+		// break valid changesets.
+		const registered = manager.registerChangeset(sessionUri, 'missing');
+		assert.strictEqual(registered, changesetUri);
+		manager.dispatchServerAction({
+			type: ActionType.ChangesetFileSet,
+			changeset: changesetUri,
+			file: {
+				id: 'file:///x.ts',
+				edit: { after: { uri: 'file:///x.ts', content: { uri: 'file:///x.ts' } }, diff: { added: 1, removed: 0 } },
+			},
+		});
+		assert.strictEqual(envelopes.length, 1, 'registered changeset action should emit an envelope');
+		assert.strictEqual(manager.serverSeq - seqBefore, 1, 'serverSeq should advance for registered changeset action');
+	});
 });
 
 suite('Subagent URI helpers', () => {

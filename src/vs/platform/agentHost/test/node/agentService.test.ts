@@ -22,7 +22,7 @@ import { AgentSession } from '../../common/agentService.js';
 import { ISessionDatabase, ISessionDataService } from '../../common/sessionDataService.js';
 import { SessionDatabase } from '../../node/sessionDatabase.js';
 import { ActionType, ActionEnvelope } from '../../common/state/sessionActions.js';
-import { MessageAttachmentKind, SessionActiveClient, ResponsePartKind, SessionLifecycle, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType, TurnState, buildSubagentSessionUri, type MarkdownResponsePart, type ToolCallCompletedState, type ToolCallResponsePart } from '../../common/state/sessionState.js';
+import { MessageAttachmentKind, SessionActiveClient, ResponsePartKind, SessionLifecycle, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType, TurnState, buildSubagentSessionUri, type ChangesetState, type MarkdownResponsePart, type ToolCallCompletedState, type ToolCallResponsePart } from '../../common/state/sessionState.js';
 import { type MessageResourceAttachment } from '../../common/state/protocol/state.js';
 import { IProductService } from '../../../product/common/productService.js';
 import { AgentService } from '../../node/agentService.js';
@@ -30,6 +30,7 @@ import { MockAgent, ScriptedMockAgent } from './mockAgent.js';
 import { mapSessionEventsToHistoryRecords } from './historyRecordFixtures.js';
 import { type ISessionEvent } from '../../node/copilot/mapSessionEvents.js';
 import { createNoopGitService, createSessionDataService } from '../common/sessionTestHelpers.js';
+import { buildChangesetUri, SESSION_CHANGESET_ID } from '../../common/changesetUri.js';
 
 /**
  * Loads a JSONL fixture of raw Copilot SDK events, runs them through
@@ -780,6 +781,46 @@ suite('AgentService (node dispatcher)', () => {
 			assert.deepStrictEqual(
 				localService.stateManager.getSessionState(session.toString())?._meta,
 				{ git: gitState },
+			);
+		});
+
+		test('subscribe to a registered session changeset URI returns a changeset snapshot', async () => {
+			service.registerProvider(copilotAgent);
+			const session = await service.createSession({ provider: 'copilot' });
+
+			const changesetUri = buildChangesetUri(session.toString(), SESSION_CHANGESET_ID);
+			const snapshot = await service.subscribe(URI.parse(changesetUri), 'client-cs-known');
+
+			assert.deepStrictEqual(
+				{
+					resource: snapshot.resource.toString(),
+					files: (snapshot.state as ChangesetState).files.length,
+				},
+				{
+					resource: changesetUri,
+					files: 0,
+				},
+			);
+		});
+
+		test('subscribe to an unregistered changeset URI fails without restoring the parent session', async () => {
+			service.registerProvider(copilotAgent);
+			// Build a changeset URI under a session URI that has never been
+			// created or restored. The unknown-changeset early throw must
+			// fire before the session-restore fallback so the parent session
+			// is not materialized as a side effect of subscribing to a child
+			// changeset URI.
+			const sessionUri = URI.from({ scheme: 'copilot', path: '/missing-session' }).toString();
+			const changesetUri = buildChangesetUri(sessionUri, SESSION_CHANGESET_ID);
+
+			await assert.rejects(
+				() => service.subscribe(URI.parse(changesetUri), 'client-cs-unknown'),
+				/unknown changeset resource/,
+			);
+			assert.strictEqual(
+				service.stateManager.getSessionState(sessionUri),
+				undefined,
+				'parent session must not be materialized as a side effect of an unknown changeset subscription',
 			);
 		});
 
