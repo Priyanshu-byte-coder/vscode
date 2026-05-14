@@ -13,7 +13,7 @@ import { AHPFileSystemProvider } from '../common/agentHostFileSystemProvider.js'
 import { AgentSession, type IAgentService } from '../common/agentService.js';
 import type { CommandMap } from '../common/state/protocol/messages.js';
 import type { UnsupportedProtocolVersionErrorData } from '../common/state/protocol/errors.js';
-import { ActionEnvelope, ActionType, INotification, isSessionAction, isTerminalAction, type SessionAction, type TerminalAction, type IRootConfigChangedAction } from '../common/state/sessionActions.js';
+import { ActionEnvelope, ActionType, INotification, isChangesetAction, isSessionAction, isTerminalAction, type SessionAction, type TerminalAction, type IRootConfigChangedAction } from '../common/state/sessionActions.js';
 import { PROTOCOL_VERSION } from '../common/state/protocol/version/registry.js';
 import {
 	AHP_AUTH_REQUIRED,
@@ -787,6 +787,9 @@ export class ProtocolServerHandler extends Disposable {
 		}
 		if (isSessionAction(action)) {
 			return client.subscriptions.has(action.session);
+		}
+		if (isChangesetAction(action)) {
+			return client.subscriptions.has(action.changeset);
 		}
 		if (isTerminalAction(action)) {
 			return client.subscriptions.has(action.terminal);

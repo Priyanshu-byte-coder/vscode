@@ -112,6 +112,11 @@ function resolveGitHubToken(): string {
 		createdSessions.push(realSessionUri);
 
 		await client.call<SubscribeResult>('subscribe', { resource: realSessionUri });
+		// Also subscribe to the session changeset URI: `changeset/*` envelopes
+		// are scoped to the changeset URI by `_isRelevantToClient`, so a
+		// session-only subscription will not receive them.
+		const sessionChangesetUri = `${realSessionUri}/changeset/session`;
+		await client.call<SubscribeResult>('subscribe', { resource: sessionChangesetUri });
 		client.clearReceived();
 
 		// Approve any tool call the agent issues. Restricted to `bash`-style
@@ -179,7 +184,6 @@ function resolveGitHubToken(): string {
 		if (!sawInLive) {
 			// Fall back to subscribing to the session changeset URI and
 			// inspecting its snapshot.
-			const sessionChangesetUri = `${realSessionUri}/changeset/session`;
 			const result = await client.call<SubscribeResult>('subscribe', { resource: sessionChangesetUri });
 			const state = result.snapshot.state as { files: Array<{ edit: { after?: { uri: string }; before?: { uri: string } } }> };
 			const matching = state.files.find(f => {

@@ -79,6 +79,11 @@ const hasGit = (() => {
 		const sessionUri = ((addedNotif.params as INotificationBroadcastParams).notification as SessionAddedNotification).summary.resource;
 
 		await client.call<SubscribeResult>('subscribe', { resource: sessionUri });
+		// Also subscribe to the session changeset URI: `changeset/*` envelopes
+		// are scoped to the changeset URI by `_isRelevantToClient`, so a
+		// session-only subscription will not receive them.
+		const sessionChangesetUri = `${sessionUri}/changeset/session`;
+		await client.call<SubscribeResult>('subscribe', { resource: sessionChangesetUri });
 		client.clearReceived();
 
 		// Fire a turn that runs the `terminal-edit:<path>` mock prompt. The mock
