@@ -296,14 +296,13 @@ export class AgentService extends Disposable implements IAgentService {
 					// `restoreSession`, the same persisted file list is
 					// fed through the live state manager and the
 					// catalogue switches over to the live overlay below.
-					//
-					// Malformed JSON is silently ignored to match legacy
-					// behaviour.
 					if (m.diffs) {
 						let parsed: ISessionFileDiff[] | undefined;
 						try {
 							parsed = JSON.parse(m.diffs) as ISessionFileDiff[];
-						} catch { /* ignore malformed */ }
+						} catch (err) {
+							this._logService.warn(`[AgentService] Failed to parse persisted diffs for ${s.session.toString()}: ${toErrorMessage(err)}`);
+						}
 						if (parsed) {
 							// Always seed the server-side changeset state
 							// so a client subscription to
