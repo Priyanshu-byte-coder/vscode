@@ -61,7 +61,6 @@ export const enum ActionType {
 	ChangesetFileRemoved = 'changeset/fileRemoved',
 	ChangesetOperationsChanged = 'changeset/operationsChanged',
 	ChangesetCleared = 'changeset/cleared',
-	ChangesetDisposed = 'changeset/disposed',
 	RootTerminalsChanged = 'root/terminalsChanged',
 	RootConfigChanged = 'root/configChanged',
 	TerminalData = 'terminal/data',
@@ -1216,35 +1215,26 @@ export interface ChangesetOperationsChangedAction {
 }
 
 /**
- * Drop every file from the changeset — typically because the underlying
- * source moved (branch switched, fork point invalidated, …) and the
- * server is recomputing from scratch.
+ * Drop every file from the changeset.
  *
- * Does NOT remove the changeset itself; subsequent
- * {@link ChangesetFileSetAction} entries will repopulate it. To dispose
- * the changeset entirely, use {@link ChangesetDisposedAction}.
+ * Two cases use this:
+ * 1. The underlying source moved (branch switched, fork point invalidated,
+ *    …) and the server is recomputing from scratch — subsequent
+ *    {@link ChangesetFileSetAction} entries will repopulate it.
+ * 2. The owning session has ended and the URI is becoming
+ *    un-subscribable — the server will unsubscribe all clients shortly
+ *    after dispatching this action.
+ *
+ * Clients SHOULD release any references on receipt and SHOULD NOT
+ * distinguish the two cases from the action alone — instead, react to
+ * the corresponding session-level lifecycle signal (e.g.
+ * `notify/sessionRemoved`) for the "going away" case.
  *
  * @category Changeset Actions
  * @version 2
  */
 export interface ChangesetClearedAction {
 	type: ActionType.ChangesetCleared;
-	/** Expanded changeset URI. */
-	changeset: URI;
-}
-
-/**
- * The changeset is no longer subscribable. The server emits this to all
- * subscribers of {@link changeset} immediately before unsubscribing them.
- *
- * Typically dispatched when the owning session ends, or when a per-turn
- * changeset's referenced turn has been removed.
- *
- * @category Changeset Actions
- * @version 2
- */
-export interface ChangesetDisposedAction {
-	type: ActionType.ChangesetDisposed;
 	/** Expanded changeset URI. */
 	changeset: URI;
 }
@@ -1301,7 +1291,6 @@ export type StateAction =
 	| ChangesetFileRemovedAction
 	| ChangesetOperationsChangedAction
 	| ChangesetClearedAction
-	| ChangesetDisposedAction
 	| TerminalDataAction
 	| TerminalInputAction
 	| TerminalResizedAction

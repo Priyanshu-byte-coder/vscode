@@ -929,12 +929,6 @@ export function changesetReducer(state: ChangesetState, action: ChangesetAction,
 			}
 			return { ...state, files: [] };
 
-		case ActionType.ChangesetDisposed:
-			// Disposal is signalled to subscribers but the reducer leaves the
-			// last-known state intact — the subscription itself is torn down by
-			// the manager that owns the URI.
-			return state;
-
 		default:
 			softAssertNever(action, log);
 			return state;

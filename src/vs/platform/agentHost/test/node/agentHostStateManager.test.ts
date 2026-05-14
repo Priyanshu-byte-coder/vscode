@@ -565,6 +565,43 @@ suite('AgentHostStateManager', () => {
 			assert.strictEqual(changed[0].changes.status, SessionStatus.Idle, 'status should be Idle so the spinner clears');
 		});
 	});
+	test('disposeChangeset emits ChangesetCleared and removes the state', () => {
+		manager.createSession(makeSessionSummary());
+		const changeset = manager.registerChangeset(sessionUri, 'session');
+
+		const envelopes: ActionEnvelope[] = [];
+		disposables.add(manager.onDidEmitEnvelope(e => envelopes.push(e)));
+
+		manager.disposeChangeset(changeset);
+
+		const cleared = envelopes.filter(e => e.action.type === ActionType.ChangesetCleared);
+		assert.strictEqual(cleared.length, 1, 'expected exactly one cleared envelope');
+		assert.strictEqual((cleared[0].action as { changeset: string }).changeset, changeset);
+		assert.strictEqual(manager.getChangesetState(changeset), undefined, 'state should be deleted');
+	});
+
+	test('producer-emitted ChangesetCleared keeps the state alive (recompute path)', () => {
+		manager.createSession(makeSessionSummary());
+		const changeset = manager.registerChangeset(sessionUri, 'session');
+		manager.dispatchServerAction({
+			type: ActionType.ChangesetFileSet,
+			changeset,
+			file: {
+				id: 'file:///a.ts',
+				edit: { after: { uri: 'file:///a.ts', content: { uri: 'file:///a.ts' } }, diff: { added: 1, removed: 0 } },
+			},
+		});
+		assert.strictEqual(manager.getChangesetState(changeset)?.files.length, 1);
+
+		manager.dispatchServerAction({
+			type: ActionType.ChangesetCleared,
+			changeset,
+		});
+
+		const after = manager.getChangesetState(changeset);
+		assert.ok(after, 'state should still exist');
+		assert.strictEqual(after.files.length, 0, 'files should be cleared');
+	});
 });
 
 suite('Subagent URI helpers', () => {

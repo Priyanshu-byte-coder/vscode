@@ -295,10 +295,10 @@ export class AgentHostStateManager extends Disposable {
 		}
 
 		// Tear down per-session changesets first so subscribers see the
-		// dispose envelope before the session itself goes away. The
-		// envelopes flow through the same emitter as everything else, so
-		// callers observing `onDidEmitEnvelope` get a deterministic order:
-		// changeset/disposed → session removal.
+		// final `changeset/cleared` envelope before the session itself goes
+		// away. The envelopes flow through the same emitter as everything
+		// else, so callers observing `onDidEmitEnvelope` get a deterministic
+		// order: changeset/cleared (per changeset) → session removal.
 		this.disposeSessionChangesets(session);
 
 		// Clean up active turn tracking. We must dispatch
@@ -410,8 +410,15 @@ export class AgentHostStateManager extends Disposable {
 	}
 
 	/**
-	 * Tear down a changeset. Emits {@link ActionType.ChangesetDisposed} so
-	 * subscribers see the transition before the URI becomes unsubscribable.
+	 * Tear down a changeset. Dispatches {@link ActionType.ChangesetCleared}
+	 * so subscribers see an empty file list, then deletes the local state
+	 * so a fresh `getChangesetState` returns `undefined` and forces the
+	 * producer to re-create the changeset on next subscribe.
+	 *
+	 * Per the spec, the server SHOULD also unsubscribe its clients after
+	 * dispatching this action; for VS Code-internal clients that happens
+	 * via the `notify/sessionRemoved` notification, which the workbench-side
+	 * provider correlates to release any held subscriptions.
 	 *
 	 * Safe to call for a URI that was never registered: producers typically
 	 * iterate over a candidate set on session disposal and emit dispose
@@ -422,9 +429,10 @@ export class AgentHostStateManager extends Disposable {
 			return;
 		}
 		this.dispatchServerAction({
-			type: ActionType.ChangesetDisposed,
+			type: ActionType.ChangesetCleared,
 			changeset,
 		});
+		this._changesetStates.delete(changeset);
 	}
 
 	/**
@@ -552,14 +560,7 @@ export class AgentHostStateManager extends Disposable {
 					this._changesetStates.set(key, newState);
 				}
 				resultingState = newState;
-				// `changeset/disposed` is the protocol's signal that this
-				// URI is no longer subscribable; drop the local state so
-				// future `getSnapshot` calls return `undefined` and a fresh
-				// subscribe forces the producer to re-create the changeset.
-				if (changesetAction.type === ActionType.ChangesetDisposed) {
-					this._changesetStates.delete(key);
-				}
-			} else if (changesetAction.type !== ActionType.ChangesetDisposed) {
+			} else {
 				this._logService.warn(`[AgentHostStateManager] Action for unknown changeset: ${key}, type=${action.type}`);
 			}
 		}

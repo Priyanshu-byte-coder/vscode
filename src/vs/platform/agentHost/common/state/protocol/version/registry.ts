@@ -100,7 +100,6 @@ export const ACTION_INTRODUCED_IN: { readonly [K in StateAction['type']]: string
 	[ActionType.ChangesetFileRemoved]: '0.1.0',
 	[ActionType.ChangesetOperationsChanged]: '0.1.0',
 	[ActionType.ChangesetCleared]: '0.1.0',
-	[ActionType.ChangesetDisposed]: '0.1.0',
 	[ActionType.RootTerminalsChanged]: '0.1.0',
 	[ActionType.RootConfigChanged]: '0.1.0',
 	[ActionType.TerminalData]: '0.1.0',

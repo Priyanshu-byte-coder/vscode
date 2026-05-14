@@ -8,7 +8,7 @@ import { Disposable, IReference } from '../../../../base/common/lifecycle.js';
 import { ResourceMap } from '../../../../base/common/map.js';
 import { IObservable, observableFromEvent } from '../../../../base/common/observable.js';
 import { URI } from '../../../../base/common/uri.js';
-import { ActionEnvelope, ActionType, ChangesetAction, IRootConfigChangedAction, SessionAction, StateAction, isChangesetAction, isSessionAction } from './sessionActions.js';
+import { ActionEnvelope, ChangesetAction, IRootConfigChangedAction, SessionAction, StateAction, isChangesetAction, isSessionAction } from './sessionActions.js';
 import { changesetReducer, rootReducer, sessionReducer } from './sessionReducers.js';
 import { terminalReducer } from './protocol/reducers.js';
 import type { RootAction, SessionAction as IProtocolSessionAction, TerminalAction } from './protocol/action-origin.generated.js';
@@ -343,11 +343,14 @@ export class TerminalStateSubscription extends BaseAgentSubscription<TerminalSta
  * Subscription to a changeset at an expanded changeset URI (e.g.
  * `<sessionUri>/changeset/session`).
  *
- * Server-only mutations — no write-ahead. The subscription self-disposes on
- * receipt of {@link ActionType.ChangesetDisposed} for its URI by surfacing it
- * as an error (callers reading {@link IAgentSubscription.value} can detect
- * the transition); the {@link AgentSubscriptionManager} that owns the
- * subscription is responsible for releasing the underlying resource.
+ * Server-only mutations — no write-ahead. The subscription itself does NOT
+ * self-tear-down on lifecycle events; cleanup is driven externally:
+ * - Workbench-side: `BaseAgentHostSessionsProvider._handleSessionRemoved`
+ *   disposes the per-session subscription map, which releases this
+ *   subscription's `IReference` and triggers `_releaseSubscription` on
+ *   the manager.
+ * - Wire layer: {@link IAgentConnection} refcounts the underlying server
+ *   subscription so multiple consumers can share one wire-level subscribe.
  */
 export class ChangesetStateSubscription extends BaseAgentSubscription<ChangesetState> {
 
@@ -364,17 +367,6 @@ export class ChangesetStateSubscription extends BaseAgentSubscription<ChangesetS
 
 	protected override _isRelevantAction(action: StateAction): boolean {
 		return isChangesetAction(action) && action.changeset === this._changesetUri;
-	}
-
-	protected override _reconcile(envelope: ActionEnvelope, isOwnAction: boolean): void {
-		super._reconcile(envelope, isOwnAction);
-		if (envelope.action.type === ActionType.ChangesetDisposed) {
-			// Mirror the spec contract: subscribers see the dispose action,
-			// then the URI becomes unreadable. We surface it as an error so
-			// downstream observables can react; the manager tears down the
-			// underlying refcounted entry on the next `release`.
-			this.setError(new Error(`Changeset disposed: ${this._changesetUri}`));
-		}
 	}
 }
 
