@@ -384,32 +384,29 @@ export class AgentHostStateManager extends Disposable {
 
 	/**
 	 * Replaces the catalogue entries on `summary.changesets` for `session`
-	 * via a {@link ActionType.SessionMetaChanged}-equivalent flow. The
-	 * change is applied through the session reducer so subscribers see the
-	 * mutation as a regular `notify/sessionSummaryChanged` notification —
-	 * the catalogue is not its own subscribable resource.
+	 * by dispatching a {@link ActionType.SessionChangesetsChanged} action.
+	 * The change is applied through the session reducer so subscribers see
+	 * the mutation in the standard action stream alongside the regular
+	 * `notify/sessionSummaryChanged` notification — the catalogue is not
+	 * its own subscribable resource.
 	 *
 	 * Producers call this after each compute pass to keep the lightweight
 	 * chip-row counts (`additions`, `deletions`, `files`) in sync without
 	 * forcing every observer to subscribe to the full changeset.
 	 */
 	setSessionChangesets(session: URI, changesets: readonly ChangesetSummary[] | undefined): void {
-		const state = this._sessionStates.get(session);
-		if (!state) {
+		if (!this._sessionStates.has(session)) {
 			this._logService.warn(`[AgentHostStateManager] setSessionChangesets: unknown session ${session}`);
 			return;
 		}
-		// Replace the array reference so the summary-flush diffs detect a
-		// change. We mutate via the same envelope path so external
-		// subscribers see a normal summary update.
+		// Take a defensive copy so callers can't mutate the catalogue array
+		// after dispatch; the reducer otherwise stores the reference as-is.
 		const next: ChangesetSummary[] | undefined = changesets ? [...changesets] : undefined;
-		const newSummary: SessionSummary = { ...state.summary, changesets: next };
-		const newState: SessionState = { ...state, summary: newSummary };
-		this._sessionStates.set(session, newState);
-		if (state.summary !== newSummary) {
-			this._dirtySummaries.add(session);
-			this._summaryNotifyScheduler.schedule();
-		}
+		this.dispatchServerAction({
+			type: ActionType.SessionChangesetsChanged,
+			session,
+			changesets: next,
+		});
 	}
 
 	/**

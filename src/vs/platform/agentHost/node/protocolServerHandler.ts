@@ -32,7 +32,7 @@ import {
 	type ReconnectParams,
 	type IStateSnapshot,
 } from '../common/state/sessionProtocol.js';
-import { ChangesetOperationScope, ResponsePartKind, ROOT_STATE_URI, SessionStatus, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType, type SessionState } from '../common/state/sessionState.js';
+import { ChangesetOperationScope, ChangesetOperationTargetKind, ResponsePartKind, ROOT_STATE_URI, SessionStatus, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType, type SessionState } from '../common/state/sessionState.js';
 import type { IProtocolServer, IProtocolTransport } from '../common/state/sessionTransport.js';
 import { AgentHostStateManager } from './agentHostStateManager.js';
 
@@ -668,9 +668,9 @@ export class ProtocolServerHandler extends Disposable {
 			if (!op) {
 				throw new ProtocolError(JsonRpcErrorCodes.InvalidParams, `Unknown operation '${params.operationId}' on changeset ${params.changeset}`);
 			}
-			const targetKind: ChangesetOperationScope = params.target?.kind === 'resource'
+			const targetKind: ChangesetOperationScope = params.target?.kind === ChangesetOperationTargetKind.Resource
 				? ChangesetOperationScope.Resource
-				: params.target?.kind === 'range'
+				: params.target?.kind === ChangesetOperationTargetKind.Range
 					? ChangesetOperationScope.Range
 					: ChangesetOperationScope.Changeset;
 			if (!op.scopes.includes(targetKind)) {

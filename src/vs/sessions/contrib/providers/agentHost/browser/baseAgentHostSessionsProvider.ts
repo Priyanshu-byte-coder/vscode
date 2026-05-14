@@ -23,7 +23,7 @@ import { NotificationType } from '../../../../../platform/agentHost/common/state
 import { ModelSelection, SessionStatus as ProtocolSessionStatus, RootConfigState, RootState, SessionState, SessionSummary, type ChangesetState } from '../../../../../platform/agentHost/common/state/protocol/state.js';
 import { ActionType, isSessionAction } from '../../../../../platform/agentHost/common/state/sessionActions.js';
 import { readSessionGitState, SessionMeta, StateComponents, type ISessionGitState } from '../../../../../platform/agentHost/common/state/sessionState.js';
-import { buildChangesetUri } from '../../../../../platform/agentHost/common/changesetUri.js';
+import { buildChangesetUri, SESSION_CHANGESET_ID } from '../../../../../platform/agentHost/common/changesetUri.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { ChatViewPaneTarget, IChatWidgetService } from '../../../../../workbench/contrib/chat/browser/chat.js';
@@ -38,7 +38,7 @@ import { IChat, IGitHubInfo, ISession, ISessionChangeset, ISessionType, ISession
 import { ISendRequestOptions, ISessionChangeEvent } from '../../../../services/sessions/common/sessionsProvider.js';
 import { computePullRequestIcon } from '../../../github/common/types.js';
 import { IGitHubService } from '../../../github/browser/githubService.js';
-import { changesetFilesEqual, changesetFilesToChanges, mapProtocolStatus, SESSION_CHANGESET_ID } from './agentHostDiffs.js';
+import { changesetFilesEqual, changesetFilesToChanges, mapProtocolStatus } from './agentHostDiffs.js';
 
 // ============================================================================
 // AgentHostSessionAdapter — shared adapter for local and remote sessions

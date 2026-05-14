@@ -436,11 +436,17 @@ export interface ChangesetSummary {
 	 * template using the standard `{name}` syntax — they are not redeclared
 	 * here.
 	 *
-	 * Only the variable names `turnId`, `originalTurnId`, and
-	 * `modifiedTurnId` are defined by this protocol. Templates with no
-	 * variables are themselves subscribable URIs. Clients SHOULD ignore
-	 * templates containing unknown variable names — there is no
-	 * protocol-defined way to obtain values for them.
+	 * Only the following template shapes are defined by this protocol; any
+	 * other variable name MUST be ignored by clients (there is no
+	 * protocol-defined way to obtain values for unknown variables):
+	 *
+	 * | Variables in template                       | Meaning                                                                              |
+	 * | ------------------------------------------- | ------------------------------------------------------------------------------------ |
+	 * | _(none)_                                    | A static, session-wide changeset. The template is itself a subscribable URI.         |
+	 * | `{turnId}`                                  | Per-turn slice. Expand with a `Turn.id` from the session.                            |
+	 * | `{originalTurnId}` and `{modifiedTurnId}`   | Diff between two turns. Both variables MUST be present.                              |
+	 *
+	 * Future protocol versions MAY add new well-known variables.
 	 */
 	uriTemplate: string;
 	/** Optional longer description. */
@@ -551,8 +557,15 @@ export interface ChangesetOperation {
 	description?: string;
 	/** Where this operation can be invoked. */
 	scopes: ChangesetOperationScope[];
-	/** Hint for clients to confirm before invoking. */
-	destructive?: boolean;
+	/**
+	 * Optional confirmation prompt to show before invoking. When present,
+	 * the client MUST display this message to the user (typically in a
+	 * confirmation dialog) and only invoke the operation after the user
+	 * accepts. The presence of this field also signals that the operation
+	 * is destructive — clients SHOULD style the affirmative button
+	 * accordingly (e.g. with a warning colour).
+	 */
+	confirmation?: StringOrMarkdown;
 	/** Optional generic icon hint, e.g. `"check"`, `"trash"`. */
 	icon?: string;
 }

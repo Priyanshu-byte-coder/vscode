@@ -109,6 +109,13 @@ export {
 	ChangesetOperationScope,
 } from './protocol/state.js';
 
+export {
+	type ChangesetOperationTarget,
+	type ChangesetOperationFollowUp,
+	ChangesetOperationTargetKind,
+	ChangesetOperationFollowUpKind,
+} from './protocol/commands.js';
+
 // ---- File edit kind ---------------------------------------------------------
 
 /**
